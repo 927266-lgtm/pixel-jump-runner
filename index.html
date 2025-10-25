@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pixel Jump Runner</title>
+    <!-- Using Inter font for clean UI --><link href="https://fonts.googleapis.com/css2?family=Inter:wght@700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* These variables are initialized here but dynamically updated by JavaScript */
+            --primary-color: #4CAF50; 
+            --obstacle-color: #FF5722; 
+            --text-color: #333;
+            --bg-color: #F5F5F5;
+            --shadow-color: rgba(0, 0, 0, 0.1);
+            --shadow-primary: #388E3C; /* Dark shade of initial primary for button shadow */
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #E0E0E0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 10px;
+            overflow: hidden;
+            color: var(--text-color);
+        }
+
+        #game-container {
+            background-color: var(--bg-color);
+            border: 8px solid var(--primary-color);
+            border-radius: 12px;
+            box-shadow: 0 10px 30px var(--shadow-color);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            width: 95vw;
+            max-width: 800px;
+            aspect-ratio: 16 / 9; /* Keep a consistent game aspect ratio */
+            position: relative;
+            transition: background-color 0.5s ease, border-color 0.5s ease; /* Smooth transitions */
+        }
+        
+        #score-board {
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            display: flex;
+            gap: 20px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--text-color);
+            z-index: 10;
+            padding: 8px 15px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.8); /* Semi-transparent white background */
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            transition: color 0.5s ease, background-color 0.5s ease;
+        }
+
+        #level-display {
+            color: var(--primary-color);
+            transition: color 0.5s ease; /* Smooth level color transition */
+        }
+
+        #game-canvas {
+            display: block;
+            touch-action: none; /* Disable default touch actions */
+            width: 100%;
+            height: 100%;
+        }
+
+        #message-box {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.95); /* Slightly less transparent */
+            backdrop-filter: blur(8px); /* More blur */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            z-index: 20;
+            padding: 20px;
+            box-sizing: border-box; /* Include padding in width/height */
+        }
+
+        #message-box h2 {
+            color: var(--obstacle-color);
+            margin-top: 0;
+            font-size: 3.5rem; /* Larger title */
+            transition: color 0.5s ease; /* Smooth obstacle color transition */
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        #message-box p {
+            font-size: 1.35rem; /* Slightly larger text */
+            color: var(--text-color);
+            margin-bottom: 30px; /* More space */
+            line-height: 1.4;
+        }
+
+        .game-button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            padding: 15px 30px; /* Larger button */
+            font-size: 1.25rem; /* Larger text */
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 10px; /* More rounded */
+            transition: all 0.2s, background-color 0.5s ease, box-shadow 0.5s ease;
+            box-shadow: 0 6px 0 0 var(--shadow-primary); /* Darker green for pressed effect */
+            transform: translateY(0);
+        }
+
+        .game-button:hover {
+            opacity: 0.9;
+        }
+
+        .game-button:active {
+            box-shadow: 0 3px 0 0 var(--shadow-primary);
+            transform: translateY(3px);
+        }
+        
+        /* Mobile touch area for jumping */
+        #touch-area {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            z-index: 5; /* Below message box, above canvas */
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="score-board">
+            <span id="level-display">Level: 1</span>
+            <span id="score-display">Score: 0</span>
+        </div>
+        <canvas id="game-canvas"></canvas>
+        <div id="touch-area"></div> 
+        
+        <!-- Message Box (Start/Game Over) --><div id="message-box">
+            <h2 id="message-title">PIXEL JUMP RUNNER</h2>
+            <p id="message-text">Press **SPACE** or **UP Arrow** (or tap anywhere) to jump over the barriers! You can now **double jump**!</p>
+            <button class="game-button" id="start-button">START GAME</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Game Setup ---
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score-display');
+        const levelDisplay = document.getElementById('level-display');
+        const messageBox = document.getElementById('message-box');
+        const messageTitle = document.getElementById('message-title');
+        const messageText = document.getElementById('message-text');
+        const startButton = document.getElementById('start-button');
+        const touchArea = document.getElementById('touch-area');
+
+        let animationFrameId;
+        let gameRunning = false;
+        let score = 0;
+        let highScore = 0;
+        let level = 1;
+        let frameCount = 0;
+
+        // --- LEVEL THEMES ---
+        const LEVEL_THEMES = [
+            // Level 1: Default (Light Green/White)
+            { bg: '#F5F5F5', primary: '#4CAF50', shadow: '#388E3C', obstacle: '#FF5722' },
+            // Level 2: Night Mode (Dark Blue/Cyan)
+            { bg: '#1C2833', primary: '#00BCD4', shadow: '#00838F', obstacle: '#FFEB3B' }, 
+            // Level 3: Desert (Yellow/Brown)
+            { bg: '#FFECB3', primary: '#795548', shadow: '#4E342E', obstacle: '#D84315' },
+            // Level 4: Volcanic (Dark Red/Purple)
+            { bg: '#3E2723', primary: '#9C27B0', shadow: '#4A148C', obstacle: '#F44336' },
+            // Level 5: Aqua (Light Blue/Green)
+            { bg: '#E0F7FA', primary: '#26A69A', shadow: '#00796B', obstacle: '#673AB7' },
+            // Level 6: Retro (Purple/Pink)
+            { bg: '#212121', primary: '#D500F9', shadow: '#AA00FF', obstacle: '#FF4081' },
+            // Level 7: Forest (Deep Green/Earth)
+            { bg: '#DCEDC8', primary: '#558B2F', shadow: '#33691E', obstacle: '#795548' },
+        ];
+
+
+        // Configuration
+        const CONFIG = {
+            PLAYER_SIZE: 40,
+            GROUND_HEIGHT_RATIO: 0.8, // Ground is at 80% down the canvas
+            OBSTACLE_SPEED_BASE: 3.5, // REDUCED for slower game speed
+            GRAVITY: 0.6, // REDUCED for 'floatier' jumps
+            JUMP_VELOCITY: -12, // REDUCED to match softer gravity
+            MAX_JUMPS: 2, // Maximum number of jumps before landing
+            OBSTACLE_GLOW_BLUR: 8, // Blur for obstacle glow
+            PLAYER_GLOW_BLUR: 15, // Blur for player glow
+            MIN_OBSTACLE_SPAWN_GAP: 70, // Frames
+            MAX_OBSTACLE_SPAWN_GAP: 150, // Frames
+            SCORE_MULTIPLIER: 0.05,
+            LEVEL_UP_SCORE_THRESHOLD: 1000 // Score needed for next level
+        };
+
+        let player = {};
+        let obstacles = [];
+        let stars = []; // For the subtle background starfield
+        let starScrollSpeed = 0.5;
+        let obstacleSpawnCounter = 0;
+        let groundY = 0;
+        let currentObstacleSpeed = CONFIG.OBSTACLE_SPEED_BASE;
+
+        // Helper function to update all dynamic CSS variables
+        function applyTheme(levelIndex) {
+            const theme = LEVEL_THEMES[levelIndex % LEVEL_THEMES.length];
+            
+            // Update CSS Root Variables
+            document.documentElement.style.setProperty('--bg-color', theme.bg);
+            document.documentElement.style.setProperty('--primary-color', theme.primary);
+            document.documentElement.style.setProperty('--obstacle-color', theme.obstacle);
+            document.documentElement.style.setProperty('--shadow-primary', theme.shadow);
+            
+            // Adjust text color based on background (simple contrast detection)
+            const isDark = (parseInt(theme.bg.substring(1, 3), 16) + parseInt(theme.bg.substring(3, 5), 16) + parseInt(theme.bg.substring(5, 7), 16)) / 3 < 128;
+            document.documentElement.style.setProperty('--text-color', isDark ? '#FFFFFF' : '#333333');
+
+            // Player color is now rainbow, so we don't set it here.
+            // But the ground line still uses --primary-color, so it updates.
+        }
+
+        // Resize function to make the canvas responsive and update ground position
+        function resizeCanvas() {
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+            
+            groundY = canvas.height * CONFIG.GROUND_HEIGHT_RATIO;
+
+            if (gameRunning && player.y) {
+                player.x = canvas.width / 10;
+                player.y = groundY - player.size;
+            }
+
+            // Regenerate stars for new canvas size
+            generateStars();
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // --- Game Entities Initialization ---
+
+        function initGame() {
+            score = 0;
+            level = 1; // Reset level
+            frameCount = 0;
+            obstacles = [];
+            obstacleSpawnCounter = 0;
+            currentObstacleSpeed = CONFIG.OBSTACLE_SPEED_BASE;
+
+            // Apply Level 1 theme
+            applyTheme(0);
+
+            // Update displays
+            levelDisplay.textContent = `Level: ${level}`;
+            scoreDisplay.textContent = `Score: 0`;
+
+            // Initialize player at the correct position on the ground
+            player = {
+                x: canvas.width / 10,
+                y: groundY - CONFIG.PLAYER_SIZE,
+                size: CONFIG.PLAYER_SIZE,
+                velocityY: 0,
+                isJumping: false,
+                jumpsRemaining: CONFIG.MAX_JUMPS, 
+                hue: 0 // Starting hue for rainbow effect
+            };
+            
+            draw(); // Initial draw before loop starts
+        }
+        
+        // Helper function to get CSS variables (used mainly for initialization and player color check)
+        function varCSS(name) {
+            try {
+                return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+            } catch (e) {
+                return '#4CAF50'; 
+            }
+        }
+
+        // --- Starfield Logic ---
+        function generateStars() {
+            stars = [];
+            for (let i = 0; i < 50; i++) { // 50 stars for a subtle effect
+                stars.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: Math.random() * 2 + 1, // 1-3 pixels
+                    opacity: Math.random() * 0.5 + 0.3 // 0.3-0.8 opacity
+                });
+            }
+        }
+        generateStars(); // Generate on initial load
+
+        function drawStars() {
+            const currentBgColor = varCSS('--bg-color');
+            stars.forEach(star => {
+                ctx.fillStyle = currentBgColor; // Tint stars with background color
+                ctx.globalAlpha = star.opacity;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size / 2, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.globalAlpha = 1;
+
+                star.y += starScrollSpeed; // Scroll stars down
+                if (star.y > canvas.height) {
+                    star.y = 0; // Reset to top
+                    star.x = Math.random() * canvas.width; // New random x
+                }
+            });
+        }
+
+        // --- Drawing Functions ---
+
+        function drawPlayer() {
+            player.hue = (player.hue + 2) % 360; // Faster rainbow
+            const rainbowColor = `hsl(${player.hue}, 100%, 50%)`; 
+            ctx.fillStyle = rainbowColor;
+            ctx.shadowColor = rainbowColor;
+            ctx.shadowBlur = CONFIG.PLAYER_GLOW_BLUR; // Enhanced player glow
+            ctx.fillRect(player.x, player.y, player.size, player.size);
+            ctx.shadowBlur = 0; 
+        }
+
+        function drawObstacles() {
+            ctx.fillStyle = varCSS('--obstacle-color');
+            ctx.shadowColor = varCSS('--obstacle-color');
+            ctx.shadowBlur = CONFIG.OBSTACLE_GLOW_BLUR; // Obstacle glow
+            obstacles.forEach(obs => {
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                // Add a small highlight detail
+                ctx.fillStyle = `rgba(255, 255, 255, 0.2)`; 
+                ctx.fillRect(obs.x + 2, obs.y + 2, obs.width / 3, 2);
+            });
+            ctx.shadowBlur = 0;
+        }
+
+        function drawGround() {
+            ctx.strokeStyle = varCSS('--primary-color');
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(0, groundY);
+            ctx.lineTo(canvas.width, groundY);
+            ctx.stroke();
+
+            // Add a subtle ground texture/line
+            ctx.fillStyle = varCSS('--primary-color');
+            ctx.globalAlpha = 0.4; // Slightly transparent
+            ctx.fillRect(0, groundY + 4, canvas.width, 2); // Darker line below main line
+            ctx.globalAlpha = 1;
+        }
+
+        function draw() {
+            ctx.fillStyle = varCSS('--bg-color');
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            drawStars(); // Draw stars first
+            drawGround(); // Draw ground over stars
+
+            if (gameRunning) {
+                drawObstacles();
+                drawPlayer(); // Draw player last to be on top
+            }
+        }
+
+        // --- Update Logic ---
+
+        function updatePlayer() {
+            // Apply gravity
+            player.velocityY += CONFIG.GRAVITY;
+            player.y += player.velocityY;
+
+            // Check collision with ground
+            if (player.y >= groundY - player.size) {
+                player.y = groundY - player.size;
+                player.velocityY = 0;
+                player.isJumping = false;
+                
+                // Reset jumps when landing on the ground
+                player.jumpsRemaining = CONFIG.MAX_JUMPS; 
+            }
+        }
+        
+        function jump() {
+            // Allow jump only if the game is running AND player has jumps remaining
+            if (gameRunning && player.jumpsRemaining > 0) {
+                player.isJumping = true;
+                player.velocityY = CONFIG.JUMP_VELOCITY;
+                player.jumpsRemaining--; // Use one jump
+            }
+        }
+
+        function spawnObstacle() {
+            obstacleSpawnCounter--;
+            
+            if (obstacleSpawnCounter <= 0) {
+                let width, height;
+
+                // Randomly choose obstacle dimensions for variety
+                const rand = Math.random();
+
+                if (rand < 0.4) {
+                    // Type 1: Tall Pillar (Standard Jump)
+                    width = 25 + Math.random() * 10;
+                    height = 50 + Math.random() * 40;
+                } else if (rand < 0.8) {
+                    // Type 2: Low Wall (Wide and Short Jump)
+                    width = 40 + Math.random() * 60; // Wider
+                    height = 20 + Math.random() * 15; // Shorter
+                } else {
+                    // Type 3: Fat Block (Wide and Tall, high risk)
+                    width = 45 + Math.random() * 20;
+                    height = 55 + Math.random() * 30;
+                }
+                
+                obstacles.push({
+                    x: canvas.width,
+                    y: groundY - height,
+                    width: width,
+                    height: height
+                });
+                
+                // Set next spawn time, reducing gap based on speed and level
+                const minGap = CONFIG.MIN_OBSTACLE_SPAWN_GAP - (level * 3);
+                const maxGap = CONFIG.MAX_OBSTACLE_SPAWN_GAP - (currentObstacleSpeed * 5) - (level * 5);
+                const spawnGap = minGap + Math.random() * (maxGap - minGap);
+
+                obstacleSpawnCounter = Math.max(40, spawnGap); // Minimum gap is 40 frames
+            }
+        }
+
+        function updateObstacles() {
+            for (let i = 0; i < obstacles.length; i++) {
+                const obs = obstacles[i];
+                obs.x -= currentObstacleSpeed;
+                
+                // Check for collision with player (Bounding Box)
+                if (
+                    player.x < obs.x + obs.width && // Player's right edge past obstacle's left edge
+                    player.x + player.size > obs.x && // Player's left edge past obstacle's right edge
+                    player.y + player.size > obs.y // Player's bottom edge below obstacle's top edge
+                ) {
+                    gameOver();
+                    return;
+                }
+
+                // Remove obstacles that go off screen
+                if (obs.x + obs.width < 0) {
+                    obstacles.splice(i, 1);
+                    i--; // Correct index after splice
+                }
+            }
+        }
+
+        function levelUp() {
+            level++;
+            levelDisplay.textContent = `Level: ${level}`;
+            
+            // Apply the new theme for the background, ground, and obstacles
+            applyTheme(level - 1); 
+
+            // Show a quick level up notification
+            messageTitle.textContent = `LEVEL UP!`;
+            messageText.innerHTML = `You reached Level ${level}. Speed increased!`;
+            messageBox.style.opacity = 1;
+            messageBox.style.display = 'flex'; // Ensure it's visible for the flash
+            setTimeout(() => {
+                messageBox.style.display = 'none'; // Hide it after flash
+            }, 500); 
+        }
+
+
+        function updateScore() {
+            frameCount++;
+            score += CONFIG.SCORE_MULTIPLIER * currentObstacleSpeed;
+            scoreDisplay.textContent = `Score: ${Math.floor(score)}`;
+
+            // Level Check
+            if (score >= level * CONFIG.LEVEL_UP_SCORE_THRESHOLD) {
+                levelUp();
+            }
+
+            // Increase difficulty (speed) based on level and time
+            // Changed frame divisor from 2000 to 3000 to slow the passive speed increase
+            currentObstacleSpeed = CONFIG.OBSTACLE_SPEED_BASE + (level * 0.5) + (frameCount / 3000);
+        }
+
+        function update() {
+            if (!gameRunning) return;
+
+            updatePlayer();
+            updateObstacles();
+            spawnObstacle();
+            updateScore();
+        }
+
+
+        // --- Game Control ---
+
+        function gameOver() {
+            gameRunning = false;
+            cancelAnimationFrame(animationFrameId);
+            
+            const finalScore = Math.floor(score);
+            if (finalScore > highScore) {
+                highScore = finalScore;
+            }
+
+            messageTitle.textContent = "GAME OVER";
+            messageText.innerHTML = `You scored: <b>${finalScore}</b> (Level ${level}).<br>High Score: <b>${highScore}</b>`;
+            startButton.textContent = 'RESTART GAME';
+            messageBox.style.opacity = 1;
+            messageBox.style.display = 'flex';
+        }
+
+        function gameLoop() {
+            update();
+            draw();
+            animationFrameId = requestAnimationFrame(gameLoop);
+        }
+
+        function startGame() {
+            messageBox.style.display = 'none';
+            messageBox.style.opacity = 1;
+            gameRunning = true;
+            initGame();
+            gameLoop();
+        }
+
+        // --- Event Listeners ---
+
+        // Keyboard Input (Spacebar and Up Arrow)
+        document.addEventListener('keydown', (e) => {
+            if (e.key === ' ' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                jump();
+            }
+        });
+
+        // Touch/Click Input (Use touchArea for better control)
+        touchArea.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            if (gameRunning) jump();
+        });
+        touchArea.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (gameRunning) jump();
+        });
+
+        // Start Button
+        startButton.addEventListener('click', () => {
+            if (!gameRunning) {
+                startGame();
+            }
+        });
+        
+        // Initial setup on load
+        window.onload = function() {
+            resizeCanvas();
+            // Apply initial theme before start
+            applyTheme(0);
+            // Display initial message box
+            messageBox.style.display = 'flex';
+            draw(); // Initial draw for visibility
+        };
+
+    </script>
+</body>
+</html>
